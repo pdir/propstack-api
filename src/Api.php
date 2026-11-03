@@ -17,92 +17,156 @@
 
 namespace Pdir\Propstack;
 
-use Pdir\Propstack\Exceptions\PropstackApiException;
-use Pdir\Propstack\Exceptions\PropstackNoApiKeyException;
 use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\RequestOptions;
+use Pdir\Propstack\Exceptions\PropstackApiException;
+use Psr\Http\Message\ResponseInterface;
 
+/**
+ * Client for the Propstack API v1.
+ *
+ * @see https://docs.propstack.de/
+ */
 class Api
 {
     /**
-     * the propstack api url
+     * Default page size for paginated requests (Propstack recommends max. 500).
+     */
+    const DEFAULT_PER_PAGE = 100;
+
+    /**
+     * Safety limit to prevent endless loops when paginating.
+     */
+    const MAX_PAGES = 1000;
+
+    /**
+     * the propstack api url.
      *
-     * @var string $apiUrl
+     * @var string
      */
     private $api = 'https://api.propstack.de';
 
     /**
-     * the propstack api version
+     * the propstack api version.
      *
-     * @var string $apiVersion
+     * @var string
      */
     protected $apiVersion = 'v1';
 
     /**
-     * the propstack api key
+     * the propstack api key.
      *
-     * @var string $apiKey
+     * @var string
      */
     private $apiKey;
 
-    /** @var Client */
+    /**
+     * @var ClientInterface
+     */
     private $client;
 
-    public function __construct(array $credentials = [])
+    public function __construct(array $credentials = [], ?ClientInterface $client = null)
     {
-        var_dump(getenv('PROPSTACK_API_KEY'));
-
-        $this->apiKey = $credentials['apiKey'] ?? getenv('PROPSTACK_API_KEY');
-
-        $this->prepareClient();
-    }
-
-    public function getProjects(): ?array
-    {
-        $data = $this->requestGet('projects');
-
-        if (null === $data) {
-            return null;
-        }
-
-        return $data;
-    }
-
-    public function getSavedQueries(): ?array
-    {
-        $data = $this->requestGet('saved_queries');
-
-        if (null === $data) {
-            return null;
-        }
-
-        return $data;
-    }
-
-    private function requestGet($resource): array
-    {
-        /* @var Response $response */
-        $response = $this->request('get', $resource);
-
-        return $this->getArrayFromJsonBody($response);
+        $this->apiKey = (string) ($credentials['apiKey'] ?? getenv('PROPSTACK_API_KEY') ?: '');
+        $this->client = $client ?? $this->createClient();
     }
 
     /**
-     * @throws PropstackNoApiKeyException
      * @throws PropstackApiException
      */
-    public function request($method, $resource)
+    public function getProjects(array $query = []): ?array
     {
+        return $this->requestGet('projects', $query);
+    }
+
+    /**
+     * Returns one page of saved queries (Suchprofile).
+     *
+     * Supported query parameters: client, page, per.
+     *
+     * @throws PropstackApiException
+     */
+    public function getSavedQueries(array $query = []): ?array
+    {
+        return $this->requestGet('saved_queries', $query);
+    }
+
+    /**
+     * Returns all saved queries (Suchprofile) by walking through all pages.
+     *
+     * The result has the same shape as a single page: ['data' => [...]].
+     * Additionally meta.total_count contains the number of loaded saved queries.
+     *
+     * @throws PropstackApiException
+     */
+    public function getAllSavedQueries(array $query = [], int $perPage = self::DEFAULT_PER_PAGE): array
+    {
+        $items = [];
+        $page = 1;
+
+        do {
+            $result = $this->getSavedQueries(array_merge($query, ['page' => $page, 'per' => $perPage]));
+            $data = $result['data'] ?? [];
+            $items = array_merge($items, $data);
+            ++$page;
+        } while (\count($data) >= $perPage && $page <= self::MAX_PAGES);
+
+        return [
+            'data' => $items,
+            'meta' => ['total_count' => \count($items)],
+        ];
+    }
+
+    /**
+     * Returns a single contact.
+     *
+     * Supported query parameters: include (children, documents, relationships, owned_properties).
+     *
+     * @throws PropstackApiException
+     */
+    public function getContact(int $id, array $query = []): ?array
+    {
+        return $this->requestGet('contacts/'.$id, $query);
+    }
+
+    /**
+     * @deprecated use getContact()
+     *
+     * @throws PropstackApiException
+     */
+    public function getContacts($id, array $query = []): ?array
+    {
+        return $this->getContact((int) $id, $query);
+    }
+
+    /**
+     * @throws PropstackApiException
+     */
+    public function request(string $method, string $resource, array $options = []): ?ResponseInterface
+    {
+        if ('' === $this->apiKey) {
+            throw new PropstackApiException('No Propstack API key configured. Pass "apiKey" or set PROPSTACK_API_KEY.');
+        }
+
+        // The key is sent as header so it does not end up in URLs, logs or proxies
+        $options[RequestOptions::HEADERS] = array_merge(
+            $options[RequestOptions::HEADERS] ?? [],
+            ['X-API-KEY' => $this->apiKey]
+        );
+
         try {
-            $response = $this->client->$method($this->createApiUrl($resource));
-        } catch (\Exception $e) {
+            $response = $this->client->request(strtoupper($method), $this->createApiUrl($resource), $options);
+        } catch (GuzzleException $e) {
+            $message = 'Propstack API request failed';
+
             if (401 === $e->getCode()) {
-                $errJson = json_decode(strstr($e->getMessage(), '{'));
-                throw new PropstackApiException($errJson->errors[0], 1, $e);
+                $errJson = json_decode((string) strstr($e->getMessage(), '{'));
+                $message = $errJson->errors[0] ?? 'Unauthorized';
             }
 
-            throw new PropstackApiException('Unknown exception', 0, $e);
+            throw new PropstackApiException($message, $e->getCode(), $e);
         }
 
         if (200 !== $response->getStatusCode()) {
@@ -113,31 +177,43 @@ class Api
     }
 
     /**
-     * @param Response $response
-     * @return array
+     * @throws PropstackApiException
      */
-    private function getArrayFromJsonBody($response): array
+    private function requestGet(string $resource, array $query = []): ?array
     {
-        $contents = $response->getBody()->getContents();
-        return \GuzzleHttp\json_decode($contents, true);
+        $response = $this->request('get', $resource, $query ? [RequestOptions::QUERY => $query] : []);
+
+        if (null === $response) {
+            return null;
+        }
+
+        return $this->getArrayFromJsonBody($response);
     }
 
     /**
-     * @param string $resource
-     * @return string
+     * @throws PropstackApiException
      */
-    protected function createApiUrl(string $resource = ''): string
+    private function getArrayFromJsonBody(ResponseInterface $response): array
     {
-        return $this->api . '/' . $this->apiVersion . '/' . $resource . '?api_key=' . $this->apiKey;
+        $data = json_decode((string) $response->getBody(), true);
+
+        if (!\is_array($data)) {
+            throw new PropstackApiException('Invalid JSON response from Propstack API.');
+        }
+
+        return $data;
     }
 
-    private function prepareClient()
+    protected function createApiUrl(string $resource = ''): string
     {
-        $client = new Client([
-            'base_uri' => $this->createApiUrl(),
-            RequestOptions::HEADERS => ['Accept' => 'application/json'],
-        ]);
+        return $this->api.'/'.$this->apiVersion.'/'.ltrim($resource, '/');
+    }
 
-        $this->client = $client;
+    private function createClient(): Client
+    {
+        return new Client([
+            RequestOptions::HEADERS => ['Accept' => 'application/json'],
+            RequestOptions::TIMEOUT => 30,
+        ]);
     }
 }

@@ -30,6 +30,12 @@ $api = new Pdir\Propstack\Api($credentials);
 // get all projects
 $projects = $api->getProjects();
 
-// get all saved queries
-$savedQueries = $api->getSavedQueries();
+// get one page of saved queries (Suchprofile)
+$savedQueries = $api->getSavedQueries(['page' => 1, 'per' => 100]);
+
+// get all saved queries (all pages)
+$allSavedQueries = $api->getAllSavedQueries();
+
+// get a single contact
+$contact = $api->getContact(123);
 ```
