@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.2.0](https://github.com/pdir/propstack-api/tree/0.1.0) – 2026-11-03
 
 - [Security] Remove `var_dump()` of the API key in the constructor
 - [Security] Send the API key as `X-API-KEY` header instead of the `api_key` query parameter
