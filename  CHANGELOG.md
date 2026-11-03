@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.2.0](https://github.com/pdir/propstack-api/tree/0.1.0) – 2026-11-03
+## [0.2.1](https://github.com/pdir/propstack-api/tree/0.2.1) – 2026-11-03
+
+- [Fixed] Remove unused dependencies `guzzlehttp/oauth-subscriber` and `psr/cache`; `oauth-subscriber ^1.0` required `psr/http-message ^2.0` and blocked installation in Contao 4.13 projects
+
+## [0.2.0](https://github.com/pdir/propstack-api/tree/0.2.0) – 2026-11-03
 
 - [Security] Remove `var_dump()` of the API key in the constructor
 - [Security] Send the API key as `X-API-KEY` header instead of the `api_key` query parameter

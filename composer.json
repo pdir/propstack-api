@@ -13,8 +13,7 @@
     "ext-json": "*",
     "ext-curl": "*",
     "guzzlehttp/guzzle": "^6.3 || ^7.1 || ^8.0",
-    "guzzlehttp/oauth-subscriber": "^1.0",
-    "psr/cache": "^1.0"
+    "psr/http-message": "^1.0 || ^2.0"
   },
   "require-dev": {
     "fzaninotto/faker": "^1.9.1",
