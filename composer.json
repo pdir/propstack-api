@@ -12,8 +12,8 @@
     "php": ">=7.2",
     "ext-json": "*",
     "ext-curl": "*",
-    "guzzlehttp/guzzle": "^6.3",
-    "guzzlehttp/oauth-subscriber": "0.4.*",
+    "guzzlehttp/guzzle": "^6.3 || ^7.1 || ^8.0",
+    "guzzlehttp/oauth-subscriber": "^1.0",
     "psr/cache": "^1.0"
   },
   "require-dev": {
